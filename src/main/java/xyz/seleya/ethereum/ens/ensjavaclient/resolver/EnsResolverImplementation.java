@@ -3,8 +3,15 @@ package xyz.seleya.ethereum.ens.ensjavaclient.resolver;
 import com.google.common.annotations.VisibleForTesting;
 import io.ipfs.cid.Cid;
 import io.ipfs.multihash.Multihash;
+import io.reactivex.Flowable;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.functions.Function;
+import io.reactivex.schedulers.Schedulers;
+import io.reactivex.subscribers.TestSubscriber;
 import org.slf4j.Logger;
 import org.springframework.lang.NonNull;
+import org.web3j.abi.EventValues;
+import org.web3j.abi.datatypes.Event;
 import org.web3j.crypto.Keys;
 import org.web3j.crypto.WalletUtils;
 import org.web3j.ens.Contracts;
@@ -12,21 +19,28 @@ import org.web3j.ens.EnsResolutionException;
 import org.web3j.ens.NameHash;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.DefaultBlockParameterName;
-import org.web3j.protocol.core.methods.response.EthBlock;
-import org.web3j.protocol.core.methods.response.EthSyncing;
-import org.web3j.protocol.core.methods.response.NetVersion;
+import org.web3j.protocol.core.methods.request.EthFilter;
+import org.web3j.protocol.core.methods.response.*;
 import org.web3j.tx.ClientTransactionManager;
+import org.web3j.tx.Contract;
 import org.web3j.tx.TransactionManager;
 import org.web3j.tx.gas.DefaultGasProvider;
 import org.web3j.utils.Numeric;
 import xyz.seleya.ethereum.ens.contracts.generated.ENSRegistryWithFallback;
 import xyz.seleya.ethereum.ens.contracts.generated.PublicResolver;
 
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import static org.slf4j.LoggerFactory.getLogger;
 import static org.web3j.ens.EnsResolver.DEFAULT_SYNC_THRESHOLD;
 import static org.web3j.ens.EnsResolver.REVERSE_NAME_SUFFIX;
+import static org.web3j.tx.Contract.staticExtractEventParameters;
+import static xyz.seleya.ethereum.ens.contracts.generated.PublicResolver.TEXTCHANGED_EVENT;
 
 public class EnsResolverImplementation implements EnsResolver {
 
@@ -155,6 +169,90 @@ public class EnsResolverImplementation implements EnsResolver {
         }
     }
 
+    public String findTextRecords(@NonNull final String contractId) {
+        if (isValidEnsName(contractId)) {
+            EventfulPublicResolver resolver = lookupResolver(contractId);
+            byte[] nameHash = NameHash.nameHashAsBytes(contractId);
+            final String nameHashHexString = Numeric.toHexString(nameHash);
+            log.info("nameHashHexString: " + nameHashHexString);
+
+            try {
+                String contractAddress = resolver.addr(nameHash).send();
+                log.info("Contract address: " + contractAddress);
+
+                // Filter
+                EthFilter filter = new EthFilter(
+                        "0x82e2c0e36fd4a65b8ed9462246f90c96640aa569d5936452b5485c8f66e8d340",
+                        resolver.getContractAddress());
+
+                Flowable<PublicResolver.TextChangedEventResponse> textChangedEventResponseFlowable =
+                        resolver.textChangedEventFlowable(filter);
+
+                log.info("Run flowable!");
+
+//                textChangedEventResponseFlowable.subscribe(System.out::println);
+
+                run(textChangedEventResponseFlowable);
+
+                log.info("Subscribe!");
+
+//            TestSubscriber<PublicResolver.TextChangedEventResponse> testSubscriber = TestSubscriber.create();
+//            textChangedEventResponseFlowable.subscribe(testSubscriber);
+
+//                TestSubscriber<PublicResolver.TextChangedEventResponse> testSubscriber =
+//                        textChangedEventResponseFlowable.observeOn(Schedulers.computation()).test();
+
+
+//            testSubscriber.request(10L);
+//                testSubscriber.awaitTerminalEvent();
+
+//                List<PublicResolver.TextChangedEventResponse> received = testSubscriber.getEvents()
+//                        .get(0)
+//                        .stream()
+//                        .map(object -> (PublicResolver.TextChangedEventResponse) object)
+//                        .collect(Collectors.toList());
+//            List<PublicResolver.TextChangedEventResponse> received =
+
+//                log.info("# of events received: " + received.size());
+
+//            textChangedEventResponseFlowable.subscribe(System.out::println);
+
+                log.info("Done!");
+
+                String url = resolver.text(nameHash, "url").send();
+                log.info("text record - url: " + url);
+
+                return url;
+            } catch (Exception e) {
+                throw new RuntimeException("Unable to execute Ethereum request", e);
+            }
+        }
+        return "";
+    }
+
+    private static final int EVENT_COUNT = 5;
+    private static final int TIMEOUT_MINUTES = 5;
+
+    private <T> void run(Flowable<T> flowable) throws Exception {
+        CountDownLatch countDownLatch = new CountDownLatch(EVENT_COUNT);
+        CountDownLatch completedLatch = new CountDownLatch(EVENT_COUNT);
+
+        Disposable subscription =
+                flowable.subscribe(
+                        x -> countDownLatch.countDown(),
+                        Throwable::printStackTrace,
+                        completedLatch::countDown);
+
+        countDownLatch.await(TIMEOUT_MINUTES, TimeUnit.MINUTES);
+        subscription.dispose();
+        completedLatch.await(1, TimeUnit.SECONDS);
+
+        log.info(
+                "CountDownLatch={}, CompletedLatch={}",
+                countDownLatch.getCount(),
+                completedLatch.getCount());
+    }
+
     @VisibleForTesting
     boolean isSynced() throws Exception {
         EthSyncing ethSyncing = web3j.ethSyncing().send();
@@ -171,7 +269,7 @@ public class EnsResolverImplementation implements EnsResolver {
     }
 
     @VisibleForTesting
-    PublicResolver lookupResolver(String ensName) throws EnsResolutionException {
+    EventfulPublicResolver lookupResolver(String ensName) throws EnsResolutionException {
         if (isValidEnsName(ensName)) {
             try {
                 if (!isSynced()) {
@@ -186,8 +284,11 @@ public class EnsResolverImplementation implements EnsResolver {
                     byte[] nameHash = NameHash.nameHashAsBytes(ensName);
                     String resolverAddress = ensRegistry.resolver(nameHash).send();
 
-                    return PublicResolver.load(
+                    EventfulPublicResolver resolver = EventfulPublicResolver.load(
                             resolverAddress, web3j, transactionManager, new DefaultGasProvider());
+
+                    String actual = resolver.getContractAddress();
+                    return resolver;
                 }
             } catch (Exception e) {
                 throw new EnsResolutionException("Unable to determine sync status of node", e);
