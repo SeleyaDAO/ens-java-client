@@ -43,7 +43,7 @@ public class EnsResolverImplementationIntegrationTest {
 
     @Test
     public void findTextRecords_happycase() {
-        final String actual = ensResolverImplementationTestInstance.findTextRecords("surak.xyz");
+        final String actual = ensResolverImplementationTestInstance.findTextRecords("kohorst.eth");
         assertEquals("https://lucaskohorst.com", actual);
 
 
