@@ -36,9 +36,7 @@ public class EnsResolverImplementationIntegrationTest {
 
     @BeforeEach
     void setUp() {
-//        web3j = Web3j.build(new HttpService("http://localhost:8545"));
-//        web3j = Web3j.build(new HttpService("https://mainnet.infura.io/v3/fbf0764a9e084633a4096a3e59878300"));
-        web3j = Web3j.build(new HttpService("https://eth-mainnet.g.alchemy.com/v2/INN9FoA5BMpA5PnIHi9uhPdxtYvNQJRL"));
+        web3j = Web3j.build(new HttpService("http://localhost:8545"));
 
         ensResolverImplementationTestInstance = EnsResolverImplementation.getInstance(web3j);
     }
