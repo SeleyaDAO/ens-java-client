@@ -182,14 +182,15 @@ public class EnsResolverImplementation implements EnsResolver {
 
                 // Filter
                 EthFilter filter = new EthFilter(
-                        DefaultBlockParameterName.EARLIEST,
-                        DefaultBlockParameterName.LATEST,
-                        contractAddress);
+                        "0x82e2c0e36fd4a65b8ed9462246f90c96640aa569d5936452b5485c8f66e8d340",
+                        resolver.getContractAddress());
 
                 Flowable<PublicResolver.TextChangedEventResponse> textChangedEventResponseFlowable =
                         resolver.textChangedEventFlowable(filter);
 
                 log.info("Run flowable!");
+
+//                textChangedEventResponseFlowable.subscribe(System.out::println);
 
                 run(textChangedEventResponseFlowable);
 
@@ -230,7 +231,7 @@ public class EnsResolverImplementation implements EnsResolver {
     }
 
     private static final int EVENT_COUNT = 5;
-    private static final int TIMEOUT_MINUTES = 1;
+    private static final int TIMEOUT_MINUTES = 5;
 
     private <T> void run(Flowable<T> flowable) throws Exception {
         CountDownLatch countDownLatch = new CountDownLatch(EVENT_COUNT);
@@ -283,8 +284,11 @@ public class EnsResolverImplementation implements EnsResolver {
                     byte[] nameHash = NameHash.nameHashAsBytes(ensName);
                     String resolverAddress = ensRegistry.resolver(nameHash).send();
 
-                    return EventfulPublicResolver.load(
+                    EventfulPublicResolver resolver = EventfulPublicResolver.load(
                             resolverAddress, web3j, transactionManager, new DefaultGasProvider());
+
+                    String actual = resolver.getContractAddress();
+                    return resolver;
                 }
             } catch (Exception e) {
                 throw new EnsResolutionException("Unable to determine sync status of node", e);
