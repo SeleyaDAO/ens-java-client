@@ -63,6 +63,11 @@ public class EnsResolverImplementation implements EnsResolver {
                 && (input.contains(".") || WalletUtils.isValidAddress(input, this.addressLength));
     }
 
+    /**
+     * https://eips.ethereum.org/EIPS/eip-1577
+     * @param contractId
+     * @return
+     */
     @Override
     public Optional<String> findContentHash(@NonNull final String contractId) {
         Cid cid = null;
