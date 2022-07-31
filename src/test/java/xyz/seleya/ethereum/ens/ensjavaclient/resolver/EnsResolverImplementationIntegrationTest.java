@@ -36,7 +36,7 @@ public class EnsResolverImplementationIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        web3j = Web3j.build(new HttpService("http://localhost"));
+        web3j = Web3j.build(new HttpService("https://localhost"));
         ensResolverImplementationTestInstance = EnsResolverImplementation.getInstance(web3j);
     }
 
